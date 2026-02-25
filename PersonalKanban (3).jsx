@@ -207,6 +207,26 @@ const styles = `
   .card-btn:hover{color:var(--text-btn-h);border-color:var(--border-card-h)}
   .card-btn.del:hover{color:#ef4444}
 
+  /* Move-to-column select for mobile */
+  .card-move{display:none;margin-top:8px}
+  @media (hover:none),(max-width:640px){
+    .card-move{display:flex}
+  }
+  .card-move-select{flex:1;background:var(--bg-btn);border:1px solid var(--border-card);border-radius:6px;padding:5px 8px;font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-btn);cursor:pointer;letter-spacing:.04em;-webkit-appearance:none;outline:none;text-transform:uppercase}
+  .card-move-select:focus{border-color:#6366f1}
+
+  /* Delete confirmation modal */
+  .confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:250;backdrop-filter:blur(4px)}
+  .confirm-box{background:var(--bg-modal);border:1px solid var(--border-card);border-radius:14px;padding:24px;width:340px;max-width:92vw;text-align:center;display:flex;flex-direction:column;gap:16px}
+  .confirm-title{font-family:'Sora',sans-serif;font-size:15px;font-weight:600;color:var(--text-title)}
+  .confirm-msg{font-size:12px;color:var(--text-card);line-height:1.6}
+  .confirm-task-name{font-weight:500;color:var(--text-title);display:block;margin-top:4px;word-break:break-word}
+  .confirm-actions{display:flex;gap:8px}
+  .confirm-btn{flex:1;padding:10px;border-radius:8px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;border:none;min-height:40px;transition:background .15s}
+  .confirm-btn.cancel{background:var(--bg-btn);color:var(--text-btn);border:1px solid var(--border-card)}
+  .confirm-btn.delete{background:#ef4444;color:white}
+  .confirm-btn.delete:hover{background:#dc2626}
+
   .card-type-row{display:flex;align-items:center;gap:6px;margin-bottom:7px}
   .type-badge{font-size:8px;letter-spacing:.1em;text-transform:uppercase;padding:2px 7px;border-radius:999px;font-weight:500;border:1px solid;white-space:nowrap}
   .priority-pip{width:5px;height:5px;border-radius:50%;flex-shrink:0}
@@ -513,7 +533,7 @@ const styles = `
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-async function callClaude(prompt, maxTokens=1000) {
+async function callGemini(prompt, maxTokens=1000) {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error("Missing VITE_GEMINI_API_KEY in .env file");
   const res = await fetch(
@@ -824,7 +844,7 @@ IMPORTANT: Total word count must be at least 500 words. Each section must be sub
 
     try {
       setStatus("Generating report with AI...");
-      const raw = await callClaude(prompt, 2500);
+      const raw = await callGemini(prompt, 2500);
       const parts = raw.split("===SECTION===").map(p => p.trim());
       if (parts.length >= 4) {
         setSections({ tasks: parts[0], learning: parts[1], challenges: parts[2], supervisor: parts[3] });
@@ -943,7 +963,7 @@ IMPORTANT: Total word count must be at least 500 words. Each section must be sub
 }
 
 // ─── Board Components ─────────────────────────────────────────────────────────
-function KanbanCard({ task, theme, onDragStart, onDelete, onEdit }) {
+function KanbanCard({ task, theme, onDragStart, onDelete, onEdit, onMove }) {
   const tc = TYPE_COLORS[theme][task.type]||TYPE_COLORS[theme]["Daily To-Do"];
   const overdue  = isOverdue(task.due)  && task.col!=="done";
   const dueToday = isDueToday(task.due) && task.col!=="done";
@@ -952,7 +972,7 @@ function KanbanCard({ task, theme, onDragStart, onDelete, onEdit }) {
       draggable onDragStart={e=>onDragStart(e,task.id)}>
       <div className="card-actions">
         <button className="card-btn" onClick={()=>onEdit(task)}>✎</button>
-        <button className="card-btn del" onClick={()=>onDelete(task.id)}>✕</button>
+        <button className="card-btn del" onClick={()=>onDelete(task.id, task.title)}>✕</button>
       </div>
       <div className="card-type-row">
         <span className="type-badge" style={{background:tc.bg,color:tc.text,borderColor:tc.border}}>{task.type}</span>
@@ -965,6 +985,12 @@ function KanbanCard({ task, theme, onDragStart, onDelete, onEdit }) {
         {task.due
           ? <span className={`card-due ${overdue?"overdue":dueToday?"today":"normal"}`}>{overdue?"⚠ ":dueToday?"● ":""}{formatDate(task.due)}{dueToday?" — today":""}</span>
           : <span/>}
+      </div>
+      {/* Mobile move-to-column fallback */}
+      <div className="card-move">
+        <select className="card-move-select" value={task.col} onChange={e=>onMove(task.id,e.target.value)}>
+          {COLUMNS.map(c=><option key={c.id} value={c.id}>→ {c.label}</option>)}
+        </select>
       </div>
     </div>
   );
@@ -997,7 +1023,25 @@ function AddCardForm({ onSave, onCancel }) {
   );
 }
 
-function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, onDragOver, onDragLeave, isOver, onDelete, onEdit, onAdd }) {
+function ConfirmDeleteModal({ taskTitle, onConfirm, onCancel }) {
+  return (
+    <div className="confirm-overlay" onClick={onCancel}>
+      <div className="confirm-box" onClick={e=>e.stopPropagation()}>
+        <div className="confirm-title">Delete Task?</div>
+        <div className="confirm-msg">
+          This action cannot be undone.
+          <span className="confirm-task-name">"{taskTitle}"</span>
+        </div>
+        <div className="confirm-actions">
+          <button className="confirm-btn cancel" onClick={onCancel}>Cancel</button>
+          <button className="confirm-btn delete" onClick={onConfirm}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, onDragOver, onDragLeave, isOver, onDelete, onEdit, onAdd, onMove }) {
   const [adding,setAdding]=useState(false);
   return (
     <div className={`column${isOver?" drag-over":""}`}
@@ -1008,7 +1052,7 @@ function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, onDragOver, onDr
         <span className="col-count">{tasks.length}</span>
       </div>
       <div className="col-body">
-        {tasks.map(t=><KanbanCard key={t.id} task={t} theme={theme} onDragStart={onDragStart} onDelete={onDelete} onEdit={onEdit}/>)}
+        {tasks.map(t=><KanbanCard key={t.id} task={t} theme={theme} onDragStart={onDragStart} onDelete={onDelete} onEdit={onEdit} onMove={onMove}/>)}
         {adding
           ? <AddCardForm onSave={d=>{onAdd(col.id,d);setAdding(false);}} onCancel={()=>setAdding(false)}/>
           : <button className="add-btn" onClick={()=>setAdding(true)}>+ add task</button>}
@@ -1322,7 +1366,10 @@ export default function App() {
     setTasks(p=>p.map(t=>t.id===dragId?{...t,col:colId}:t));
     setDragId(null); setOverCol(null);
   },[dragId]);
-  const handleDelete    = useCallback(id=>setTasks(p=>p.filter(t=>t.id!==id)),[]);
+  const [confirmDelete, setConfirmDelete] = useState(null); // {id, title}
+  const handleDelete    = useCallback((id,title)=>setConfirmDelete({id,title}),[]);
+  const confirmDeleteTask = useCallback(()=>{if(confirmDelete){setTasks(p=>p.filter(t=>t.id!==confirmDelete.id));setConfirmDelete(null);}},[confirmDelete]);
+  const handleMove      = useCallback((id,colId)=>setTasks(p=>p.map(t=>t.id===id?{...t,col:colId}:t)),[]);
   const handleAdd       = useCallback((colId,data)=>setTasks(p=>[...p,{id:newId(),col:colId,...data}]),[]);
   const handleSaveEdit  = useCallback(u=>{setTasks(p=>p.map(t=>t.id===u.id?u:t));setEditing(null);},[]);
   const updateLog       = (key,patch)=>setLog(p=>({...p,[key]:{...p[key],...patch}}));
@@ -1342,7 +1389,7 @@ export default function App() {
     const entry=log[activeDay]||{}; const [week,day]=activeDay.split("-D");
     const doneList=tasks.filter(t=>t.col==="done").map(t=>`- ${t.title} (${t.type})`).join("\n")||"None";
     try {
-      const summary=await callClaude(`Summarize the daily work log of a QA Engineering intern.\nWeek ${week.replace("W","")}, Day ${day} — ${entry.date||""}\nCOMPLETED:\n${doneList}\nNOTES:\n${entry.notes||"No notes."}\nWrite a concise 3–5 sentence professional summary in first person.`);
+      const summary=await callGemini(`Summarize the daily work log of a QA Engineering intern.\nWeek ${week.replace("W","")}, Day ${day} — ${entry.date||""}\nCOMPLETED:\n${doneList}\nNOTES:\n${entry.notes||"No notes."}\nWrite a concise 3–5 sentence professional summary in first person.`);
       updateLog(activeDay,{summary});
     } catch { updateLog(activeDay,{summary:"Error generating summary."}); }
     setLoadingDay(false);
@@ -1355,7 +1402,7 @@ export default function App() {
     const inProg=tasks.filter(t=>t.col==="inprogress").map(t=>`- ${t.title}`).join("\n")||"None";
     const blockers=tasks.filter(t=>t.blocker).map(t=>`- ${t.title}: ${t.blocker}`).join("\n")||"None";
     try {
-      const raw=await callClaude(`Generate standup for QA intern. Week ${week.replace("W","")}, Day ${day}.\nDONE: ${doneList}\nIN PROGRESS: ${inProg}\nBLOCKERS: ${blockers}\nNOTES: ${entry.notes||"None"}\nRespond with EXACTLY three sections separated by "|||" (no labels, no extra text):\n[2-4 bullet points of what was done yesterday]|||[2-4 bullet points for today]|||[blockers or "No blockers today."]`);
+      const raw=await callGemini(`Generate standup for QA intern. Week ${week.replace("W","")}, Day ${day}.\nDONE: ${doneList}\nIN PROGRESS: ${inProg}\nBLOCKERS: ${blockers}\nNOTES: ${entry.notes||"None"}\nRespond with EXACTLY three sections separated by "|||" (no labels, no extra text):\n[2-4 bullet points of what was done yesterday]|||[2-4 bullet points for today]|||[blockers or "No blockers today."]`);
       updateLog(activeDay,{standup:raw.trim()});
     } catch { updateLog(activeDay,{standup:"Error|||Error|||Error"}); }
     setLoadingStandup(false);
@@ -1368,7 +1415,7 @@ export default function App() {
     const doneList=tasks.filter(t=>t.col==="done").map(t=>`- ${t.title} (${t.type})`).join("\n")||"None";
     const dayBreakdowns=weekDays.map(([k,e])=>`Day ${k.split("-D")[1]} (${e.date||""}): ${e.notes||"No notes"}${e.summary?`\n${e.summary}`:""}`).join("\n\n");
     try {
-      const summary=await callClaude(`Weekly summary for QA intern. Week ${weekKey.replace("W","")}.\nDAILY LOGS:\n${dayBreakdowns}\nCOMPLETED:\n${doneList}\nWrite structured summary with: 1. Overall Achievements 2. Key Learnings 3. Challenges & Blockers 4. Next Week Focus. Professional, first person.`);
+      const summary=await callGemini(`Weekly summary for QA intern. Week ${weekKey.replace("W","")}.\nDAILY LOGS:\n${dayBreakdowns}\nCOMPLETED:\n${doneList}\nWrite structured summary with: 1. Overall Achievements 2. Key Learnings 3. Challenges & Blockers 4. Next Week Focus. Professional, first person.`);
       setWeekSummaries(p=>({...p,[weekKey]:summary}));
     } catch { setWeekSummaries(p=>({...p,[weekKey]:"Error generating summary."})); }
     setLoadingWeek(false);
@@ -1433,6 +1480,7 @@ export default function App() {
                   onDragLeave={()=>setOverCol(null)}
                   isOver={overCol===col.id}
                   onDelete={handleDelete} onEdit={setEditing} onAdd={handleAdd}
+                  onMove={handleMove}
                 />
               ))}
             </div>
@@ -1496,6 +1544,7 @@ export default function App() {
       </div>
 
       {editing && <EditModal task={editing} onSave={handleSaveEdit} onClose={()=>setEditing(null)}/>}
+      {confirmDelete && <ConfirmDeleteModal taskTitle={confirmDelete.title} onConfirm={confirmDeleteTask} onCancel={()=>setConfirmDelete(null)}/>}
       {showReport && (
         <PracticumReportModal
           weekKey={activeWeek}
