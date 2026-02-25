@@ -8,6 +8,7 @@ export default function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, o
   return (
     <div
       className={`column${isOver ? " drag-over" : ""}`}
+      data-col-id={col.id}
       onDrop={(e) => onDrop(e, col.id)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}

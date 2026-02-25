@@ -10,6 +10,7 @@ export default function KanbanCard({ task, theme, onDragStart, onDelete, onEdit,
     <div
       className={`card${overdue ? " overdue" : ""}${dueToday && !overdue ? " due-today" : ""}`}
       draggable
+      data-task-id={task.id}
       onDragStart={(e) => onDragStart(e, task.id)}
     >
       <div className="card-actions">

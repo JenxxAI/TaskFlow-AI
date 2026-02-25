@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import "./styles.css";
 import { COLUMNS } from "./constants";
 import useKanban from "./hooks/useKanban";
+import useTouchDrag from "./hooks/useTouchDrag";
 import KanbanColumn from "./components/KanbanColumn";
 import ColDots from "./components/ColDots";
 import DayEntry from "./components/DayEntry";
@@ -13,6 +14,7 @@ import SearchFilterBar from "./components/SearchFilterBar";
 import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import DataBackupModal from "./components/DataBackupModal";
 import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal";
+import ToastContainer from "./components/ToastContainer";
 
 export default function App() {
   const {
@@ -23,6 +25,10 @@ export default function App() {
     // new feature state
     searchQuery, filterType, filterPriority,
     showBackup, showShortcuts, filteredTasks,
+    // undo/redo
+    undo, redo, canUndo, canRedo,
+    // toasts
+    toasts, dismissToast,
     // setters
     setActiveTab, setOverCol, setEditing, setActiveDay,
     setSidebarOpen, setShowReport, setConfirmDelete,
@@ -38,11 +44,26 @@ export default function App() {
     weeks, doneStat, overdueStat, blockedStat, dateStr, activeWeek,
   } = useKanban();
 
+  // ── Touch drag & drop for mobile ──
+  useTouchDrag(boardRef, handleMove);
+
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e) => {
       const tag = e.target.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable) return;
+
+      // Undo: Ctrl/Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault(); undo(); return;
+      }
+      // Redo: Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y
+      if ((e.ctrlKey || e.metaKey) && ((e.key === "z" && e.shiftKey) || e.key === "y")) {
+        e.preventDefault(); redo(); return;
+      }
+
+      if (e.ctrlKey || e.metaKey) return; // don't hijack other Ctrl combos
+
       switch (e.key.toLowerCase()) {
         case "n": e.preventDefault(); setActiveTab("board"); break;
         case "/": e.preventDefault(); setActiveTab("board"); setTimeout(() => document.getElementById("task-search-input")?.focus(), 50); break;
@@ -62,7 +83,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [setActiveTab, boardRef, toggleTheme, setEditing, setShowBackup, setShowShortcuts, setShowReport, setConfirmDelete]);
+  }, [setActiveTab, boardRef, toggleTheme, setEditing, setShowBackup, setShowShortcuts, setShowReport, setConfirmDelete, undo, redo]);
 
   return (
     <div className="app">
@@ -82,6 +103,8 @@ export default function App() {
             <div className="stat"><span className="stat-num" style={{ color: blockedStat > 0 ? "#f59e0b" : "var(--text-muted)" }}>{blockedStat}</span><span className="stat-label">Blocked</span></div>
           </div>
           <div className="header-btn-group">
+            <button className="header-btn" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩</button>
+            <button className="header-btn" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">↪</button>
             <button className="header-btn" onClick={() => setShowBackup(true)} title="Backup / Restore">💾</button>
             <button className="header-btn" onClick={() => setShowShortcuts(true)} title="Keyboard Shortcuts (?)">⌨️</button>
             <button className="theme-toggle" onClick={toggleTheme}>
@@ -194,6 +217,9 @@ export default function App() {
         />
       )}
       {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
+
+      {/* ── Toasts ── */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

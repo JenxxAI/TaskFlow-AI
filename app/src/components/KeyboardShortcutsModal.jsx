@@ -7,6 +7,8 @@ export default function KeyboardShortcutsModal({ onClose }) {
     { keys: ["L"], desc: "Switch to Daily Log tab" },
     { keys: ["A"], desc: "Switch to Analytics tab" },
     { keys: ["D"], desc: "Toggle dark/light theme" },
+    { keys: ["Ctrl+Z"], desc: "Undo last action" },
+    { keys: ["Ctrl+⇧+Z"], desc: "Redo last action" },
     { keys: ["?"], desc: "Show this help" },
     { keys: ["Esc"], desc: "Close modals & search" },
   ];

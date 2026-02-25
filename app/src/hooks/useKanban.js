@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { STORAGE_KEY, LOG_KEY, THEME_KEY } from "../constants";
 import { THEME } from "../theme";
-import { newId, isOverdue, loadTasks, loadLog, loadTheme, makeDefaultLog } from "../utils";
+import { newId, isOverdue, isDueToday, loadTasks, loadLog, loadTheme, makeDefaultLog } from "../utils";
 import { callGemini, exportWeekPDF } from "../api";
+
+const MAX_UNDO = 30;
 
 export default function useKanban() {
   const [tasks,          setTasks]          = useState(loadTasks);
@@ -28,6 +30,20 @@ export default function useKanban() {
   const [filterPriority, setFilterPriority] = useState("");
   const [showBackup,     setShowBackup]     = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
+
+  // ── Undo / Redo ──
+  const undoStack = useRef([]);
+  const redoStack = useRef([]);
+
+  // ── Toasts ──
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((message, type = "info", duration = 5000) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((p) => [...p, { id, message, type, duration }]);
+  }, []);
+  const dismissToast = useCallback((id) => {
+    setToasts((p) => p.filter((t) => t.id !== id));
+  }, []);
 
   const boardRef = useRef(null);
 
@@ -58,23 +74,71 @@ export default function useKanban() {
     return () => board.removeEventListener("scroll", onScroll);
   }, []);
 
-  // ── Handlers ──
+  // ── Handlers (undo-aware) ──
+  /** Push current tasks to undo stack before mutating, with a label for toast */
+  const pushUndo = useCallback((label) => {
+    setTasks((cur) => {
+      undoStack.current.push({ tasks: cur, label });
+      if (undoStack.current.length > MAX_UNDO) undoStack.current.shift();
+      redoStack.current = []; // any new action clears redo
+      return cur; // no state change — the caller sets tasks separately
+    });
+  }, []);
+
+  const undo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const entry = undoStack.current.pop();
+    setTasks((cur) => {
+      redoStack.current.push({ tasks: cur, label: entry.label });
+      return entry.tasks;
+    });
+    addToast(`↩ Undo: ${entry.label}`, "info", 3000);
+  }, [addToast]);
+
+  const redo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const entry = redoStack.current.pop();
+    setTasks((cur) => {
+      undoStack.current.push({ tasks: cur, label: entry.label });
+      return entry.tasks;
+    });
+    addToast(`↪ Redo: ${entry.label}`, "info", 3000);
+  }, [addToast]);
+
+  const canUndo = undoStack.current.length > 0;
+  const canRedo = redoStack.current.length > 0;
+
   const toggleTheme     = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
   const handleDragStart = useCallback((e, id) => { setDragId(id); e.dataTransfer.effectAllowed = "move"; }, []);
   const handleDragOver  = useCallback((e) => e.preventDefault(), []);
   const handleDrop      = useCallback((e, colId) => {
     e.preventDefault(); if (!dragId) return;
+    pushUndo("move task");
     setTasks((p) => p.map((t) => (t.id === dragId ? { ...t, col: colId } : t)));
     setDragId(null); setOverCol(null);
-  }, [dragId]);
+  }, [dragId, pushUndo]);
 
   const handleDelete      = useCallback((id, title) => setConfirmDelete({ id, title }), []);
   const confirmDeleteTask = useCallback(() => {
-    if (confirmDelete) { setTasks((p) => p.filter((t) => t.id !== confirmDelete.id)); setConfirmDelete(null); }
-  }, [confirmDelete]);
-  const handleMove      = useCallback((id, colId) => setTasks((p) => p.map((t) => (t.id === id ? { ...t, col: colId } : t))), []);
-  const handleAdd       = useCallback((colId, data) => setTasks((p) => [...p, { id: newId(), col: colId, ...data, subtasks: data.subtasks || [] }]), []);
-  const handleSaveEdit  = useCallback((u) => { setTasks((p) => p.map((t) => (t.id === u.id ? u : t))); setEditing(null); }, []);
+    if (confirmDelete) {
+      pushUndo(`delete "${confirmDelete.title}"`);
+      setTasks((p) => p.filter((t) => t.id !== confirmDelete.id));
+      setConfirmDelete(null);
+    }
+  }, [confirmDelete, pushUndo]);
+  const handleMove = useCallback((id, colId) => {
+    pushUndo("move task");
+    setTasks((p) => p.map((t) => (t.id === id ? { ...t, col: colId } : t)));
+  }, [pushUndo]);
+  const handleAdd       = useCallback((colId, data) => {
+    pushUndo("add task");
+    setTasks((p) => [...p, { id: newId(), col: colId, ...data, subtasks: data.subtasks || [] }]);
+  }, [pushUndo]);
+  const handleSaveEdit  = useCallback((u) => {
+    pushUndo("edit task");
+    setTasks((p) => p.map((t) => (t.id === u.id ? u : t)));
+    setEditing(null);
+  }, [pushUndo]);
   const updateLog       = (key, patch) => setLog((p) => ({ ...p, [key]: { ...p[key], ...patch } }));
 
   // ── Subtask toggle (from card) ──
@@ -180,6 +244,27 @@ export default function useKanban() {
   const dateStr     = useMemo(() => new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }), []);
   const [activeWeek] = activeDay.split("-D");
 
+  // ── Due-date notifications on mount ──
+  const notifiedRef = useRef(false);
+  useEffect(() => {
+    if (notifiedRef.current) return;
+    notifiedRef.current = true;
+    const overdueList = tasks.filter((t) => isOverdue(t.due) && t.col !== "done");
+    const dueTodayList = tasks.filter((t) => isDueToday(t.due) && t.col !== "done");
+    if (overdueList.length > 0) {
+      addToast(
+        `${overdueList.length} task${overdueList.length > 1 ? "s" : ""} overdue!  ${overdueList.map((t) => t.title).join(", ")}`,
+        "error", 8000,
+      );
+    }
+    if (dueTodayList.length > 0) {
+      addToast(
+        `${dueTodayList.length} task${dueTodayList.length > 1 ? "s" : ""} due today:  ${dueTodayList.map((t) => t.title).join(", ")}`,
+        "warning", 8000,
+      );
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return {
     // State
     tasks, theme, activeTab, overCol, editing, activeDay,
@@ -191,6 +276,12 @@ export default function useKanban() {
     searchQuery, filterType, filterPriority,
     showBackup, showShortcuts,
     filteredTasks,
+
+    // Undo / Redo
+    undo, redo, canUndo, canRedo,
+
+    // Toasts
+    toasts, addToast, dismissToast,
 
     // Setters
     setActiveTab, setOverCol, setEditing, setActiveDay,
