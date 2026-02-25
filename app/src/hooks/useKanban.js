@@ -54,16 +54,16 @@ export default function useKanban() {
   // ── Apply theme CSS vars ──
   useEffect(() => {
     Object.entries(THEME[theme]).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
-    try { localStorage.setItem(THEME_KEY, theme); } catch {}
+    try { localStorage.setItem(THEME_KEY, theme); } catch { /* ignore quota errors */ }
   }, [theme]);
 
   // ── Persist to localStorage (debounced 500ms) ──
   useEffect(() => {
-    const id = setTimeout(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch {} }, 500);
+    const id = setTimeout(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks)); } catch { /* ignore */ } }, 500);
     return () => clearTimeout(id);
   }, [tasks]);
   useEffect(() => {
-    const id = setTimeout(() => { try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch {} }, 500);
+    const id = setTimeout(() => { try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch { /* ignore */ } }, 500);
     return () => clearTimeout(id);
   }, [log]);
 
@@ -79,6 +79,13 @@ export default function useKanban() {
   }, []);
 
   // ── Handlers (undo-aware) ──
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const syncUndoRedo = useCallback(() => {
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(redoStack.current.length > 0);
+  }, []);
+
   /** Push current tasks to undo stack before mutating, with a label for toast */
   const pushUndo = useCallback((label) => {
     setTasks((cur) => {
@@ -87,7 +94,8 @@ export default function useKanban() {
       redoStack.current = []; // any new action clears redo
       return cur; // no state change — the caller sets tasks separately
     });
-  }, []);
+    syncUndoRedo();
+  }, [syncUndoRedo]);
 
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return;
@@ -97,7 +105,8 @@ export default function useKanban() {
       return entry.tasks;
     });
     addToast(`↩ Undo: ${entry.label}`, "info", 3000);
-  }, [addToast]);
+    syncUndoRedo();
+  }, [addToast, syncUndoRedo]);
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return;
@@ -107,10 +116,8 @@ export default function useKanban() {
       return entry.tasks;
     });
     addToast(`↪ Redo: ${entry.label}`, "info", 3000);
-  }, [addToast]);
-
-  const canUndo = undoStack.current.length > 0;
-  const canRedo = redoStack.current.length > 0;
+    syncUndoRedo();
+  }, [addToast, syncUndoRedo]);
 
   const toggleTheme     = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
   const handleDragStart = useCallback((e, id) => { setDragId(id); e.dataTransfer.effectAllowed = "move"; }, []);
@@ -144,6 +151,20 @@ export default function useKanban() {
     setEditing(null);
   }, [pushUndo]);
   const updateLog       = (key, patch) => setLog((p) => ({ ...p, [key]: { ...p[key], ...patch } }));
+
+  // ── Search & filter logic (memoized) ── (must be above bulk actions)
+  const filteredTasks = useMemo(() => tasks.filter((t) => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const matchTitle = t.title.toLowerCase().includes(q);
+      const matchNotes = t.notes?.toLowerCase().includes(q);
+      const matchBlocker = t.blocker?.toLowerCase().includes(q);
+      if (!matchTitle && !matchNotes && !matchBlocker) return false;
+    }
+    if (filterType && t.type !== filterType) return false;
+    if (filterPriority && t.priority !== filterPriority) return false;
+    return true;
+  }), [tasks, searchQuery, filterType, filterPriority]);
 
   // ── Bulk actions ──
   const toggleSelectTask = useCallback((id) => {
@@ -181,33 +202,6 @@ export default function useKanban() {
   }, [selectedIds, pushUndo, addToast, exitBulkMode]);
 
   // ── Subtask toggle (from card) ──
-  const toggleSubtask = useCallback((taskId, subtaskId) => {
-    setTasks((p) => p.map((t) => {
-      if (t.id !== taskId) return t;
-      return { ...t, subtasks: (t.subtasks || []).map((s) => s.id === subtaskId ? { ...s, done: !s.done } : s) };
-    }));
-  }, []);
-
-  // ── Data export/import ──
-  const handleRestore = useCallback((data) => {
-    setTasks(data.tasks);
-    setLog(data.log || {});
-    if (data.theme) setTheme(data.theme);
-  }, []);
-
-  // ── Search & filter logic (memoized) ──
-  const filteredTasks = useMemo(() => tasks.filter((t) => {
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const matchTitle = t.title.toLowerCase().includes(q);
-      const matchNotes = t.notes?.toLowerCase().includes(q);
-      const matchBlocker = t.blocker?.toLowerCase().includes(q);
-      if (!matchTitle && !matchNotes && !matchBlocker) return false;
-    }
-    if (filterType && t.type !== filterType) return false;
-    if (filterPriority && t.priority !== filterPriority) return false;
-    return true;
-  }), [tasks, searchQuery, filterType, filterPriority]);
 
   const addDay = () => {
     const wks = [...new Set(Object.keys(log).map((k) => k.split("-")[0]))];
@@ -270,6 +264,14 @@ export default function useKanban() {
     exportWeekPDF({ weekKey, log, doneTasks: tasks.filter((t) => t.col === "done"), weekSummary: weekSummaries[weekKey] });
   };
 
+  const handleRestore = useCallback((data) => {
+    pushUndo("restore backup");
+    if (data.tasks) setTasks(data.tasks);
+    if (data.log)   setLog(data.log);
+    if (data.theme) setTheme(data.theme);
+    addToast("Backup restored!", "info", 3000);
+  }, [pushUndo, addToast]);
+
   // ── Derived values (memoized) ──
   const weeks = useMemo(() => {
     const w = {};
@@ -290,18 +292,21 @@ export default function useKanban() {
     notifiedRef.current = true;
     const overdueList = tasks.filter((t) => isOverdue(t.due) && t.col !== "done");
     const dueTodayList = tasks.filter((t) => isDueToday(t.due) && t.col !== "done");
-    if (overdueList.length > 0) {
-      addToast(
-        `${overdueList.length} task${overdueList.length > 1 ? "s" : ""} overdue!  ${overdueList.map((t) => t.title).join(", ")}`,
-        "error", 8000,
-      );
-    }
-    if (dueTodayList.length > 0) {
-      addToast(
-        `${dueTodayList.length} task${dueTodayList.length > 1 ? "s" : ""} due today:  ${dueTodayList.map((t) => t.title).join(", ")}`,
-        "warning", 8000,
-      );
-    }
+    // Defer toasts to avoid synchronous setState inside the effect body
+    setTimeout(() => {
+      if (overdueList.length > 0) {
+        addToast(
+          `${overdueList.length} task${overdueList.length > 1 ? "s" : ""} overdue!  ${overdueList.map((t) => t.title).join(", ")}`,
+          "error", 8000,
+        );
+      }
+      if (dueTodayList.length > 0) {
+        addToast(
+          `${dueTodayList.length} task${dueTodayList.length > 1 ? "s" : ""} due today:  ${dueTodayList.map((t) => t.title).join(", ")}`,
+          "warning", 8000,
+        );
+      }
+    }, 0);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
@@ -338,7 +343,7 @@ export default function useKanban() {
     handleDelete, confirmDeleteTask, handleMove, handleAdd,
     handleSaveEdit, updateLog, addDay,
     summarizeDay, generateStandup, summarizeWeek, handleExportPDF,
-    toggleSubtask, handleRestore,
+    handleRestore,
 
     // Derived
     weeks, doneStat, overdueStat, blockedStat, dateStr, activeWeek,

@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 
 export default function WeekAccordion({ week, days, log, activeDay, defaultOpen, onSelectDay }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(() => defaultOpen || days.includes(activeDay));
   const weekNum = week.replace("W", "");
 
   // Auto-open if the active day is inside this week
   useEffect(() => {
-    if (days.includes(activeDay)) setOpen(true);
+    if (days.includes(activeDay)) {
+      // Use setTimeout to avoid synchronous setState in effect
+      const id = setTimeout(() => setOpen(true), 0);
+      return () => clearTimeout(id);
+    }
   }, [activeDay, days]);
 
   const hasActive = days.includes(activeDay);
 
   // Count how many days have content
-  const filledDays = days.filter((dk) => {
+  const _filledDays = days.filter((dk) => {
     const e = log[dk] || {};
     return e.notes || e.summary || e.standup;
   });

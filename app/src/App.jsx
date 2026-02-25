@@ -44,7 +44,7 @@ export default function App() {
     handleDelete, confirmDeleteTask, handleMove, handleAdd,
     handleSaveEdit, updateLog, addDay,
     summarizeDay, generateStandup, summarizeWeek, handleExportPDF,
-    toggleSubtask, handleRestore,
+    handleRestore,
     // derived
     weeks, doneStat, overdueStat, blockedStat, dateStr, activeWeek,
   } = useKanban();
@@ -229,7 +229,6 @@ export default function App() {
         <PracticumReportModal
           weekKey={activeWeek} log={log}
           doneTasks={tasks.filter((t) => t.col === "done")}
-          allTasks={tasks}
           onClose={() => setShowReport(false)}
         />
       )}

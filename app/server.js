@@ -1,3 +1,4 @@
+/* global process */
 // Lightweight production server — serves the Vite build and proxies /api/gemini
 // so the API key is never exposed to the browser.
 //

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { callGemini, generatePracticumDocx } from "../api";
 
-export default function PracticumReportModal({ weekKey, log, doneTasks, allTasks, onClose }) {
+export default function PracticumReportModal({ weekKey, log, doneTasks, onClose }) {
   const weekNum = weekKey.replace("W", "");
   const weekDays = Object.entries(log)
     .filter(([k]) => k.startsWith(weekKey))
@@ -87,7 +87,7 @@ IMPORTANT: Total word count must be at least 500 words. Each section must be sub
       } else {
         setError("AI response format unexpected. Please try again.");
       }
-    } catch (e) {
+    } catch {
       setError("Error generating report. Please try again.");
     }
     setLoading(false);

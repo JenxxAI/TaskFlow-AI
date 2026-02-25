@@ -34,6 +34,7 @@ function geminiProxy(apiKey) {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // loadEnv with '' prefix loads ALL env vars (not just VITE_*)
+  // eslint-disable-next-line no-undef
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [react(), geminiProxy(env.GEMINI_API_KEY)],
