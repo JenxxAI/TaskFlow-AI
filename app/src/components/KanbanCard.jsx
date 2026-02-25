@@ -1,22 +1,42 @@
 import { TYPE_COLORS, PRIORITY_META, COLUMNS } from "../constants";
 import { isOverdue, isDueToday, formatDate } from "../utils";
 
-export default function KanbanCard({ task, theme, onDragStart, onDelete, onEdit, onMove }) {
+export default function KanbanCard({ task, theme, onDragStart, onDelete, onEdit, onMove, bulkMode, isSelected, onToggleSelect }) {
   const tc = TYPE_COLORS[theme][task.type] || TYPE_COLORS[theme]["Daily To-Do"];
   const overdue  = isOverdue(task.due) && task.col !== "done";
   const dueToday = isDueToday(task.due) && task.col !== "done";
 
+  const handleCardClick = (e) => {
+    if (!bulkMode) return;
+    // Don't toggle when clicking buttons/selects
+    if (e.target.closest(".card-actions") || e.target.closest(".card-move") || e.target.tagName === "BUTTON" || e.target.tagName === "SELECT") return;
+    onToggleSelect(task.id);
+  };
+
   return (
     <div
-      className={`card${overdue ? " overdue" : ""}${dueToday && !overdue ? " due-today" : ""}`}
-      draggable
+      className={`card${overdue ? " overdue" : ""}${dueToday && !overdue ? " due-today" : ""}${bulkMode ? " bulk-mode" : ""}${isSelected ? " selected" : ""}`}
+      draggable={!bulkMode}
       data-task-id={task.id}
-      onDragStart={(e) => onDragStart(e, task.id)}
+      onDragStart={(e) => !bulkMode && onDragStart(e, task.id)}
+      onClick={handleCardClick}
     >
-      <div className="card-actions">
-        <button className="card-btn" onClick={() => onEdit(task)}>✎</button>
-        <button className="card-btn del" onClick={() => onDelete(task.id, task.title)}>✕</button>
-      </div>
+      {bulkMode && (
+        <label className="bulk-checkbox-wrap" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            className="bulk-checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(task.id)}
+          />
+        </label>
+      )}
+      {!bulkMode && (
+        <div className="card-actions">
+          <button className="card-btn" onClick={() => onEdit(task)}>✎</button>
+          <button className="card-btn del" onClick={() => onDelete(task.id, task.title)}>✕</button>
+        </div>
+      )}
       <div className="card-type-row">
         <span className="type-badge" style={{ background: tc.bg, color: tc.text, borderColor: tc.border }}>
           {task.type}

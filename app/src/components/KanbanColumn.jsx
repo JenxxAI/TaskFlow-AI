@@ -2,7 +2,7 @@ import { useState } from "react";
 import KanbanCard from "./KanbanCard";
 import AddCardForm from "./AddCardForm";
 
-export default function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, onDragOver, onDragLeave, isOver, onDelete, onEdit, onAdd, onMove }) {
+export default function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, onDragOver, onDragLeave, isOver, onDelete, onEdit, onAdd, onMove, bulkMode, selectedIds, onToggleSelect }) {
   const [adding, setAdding] = useState(false);
 
   return (
@@ -24,6 +24,9 @@ export default function KanbanColumn({ col, tasks, theme, onDragStart, onDrop, o
             key={t.id} task={t} theme={theme}
             onDragStart={onDragStart} onDelete={onDelete}
             onEdit={onEdit} onMove={onMove}
+            bulkMode={bulkMode}
+            isSelected={selectedIds?.has(t.id)}
+            onToggleSelect={onToggleSelect}
           />
         ))}
         {adding ? (

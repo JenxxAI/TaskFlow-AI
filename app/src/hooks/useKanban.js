@@ -31,6 +31,10 @@ export default function useKanban() {
   const [showBackup,     setShowBackup]     = useState(false);
   const [showShortcuts,  setShowShortcuts]  = useState(false);
 
+  // ── Bulk selection ──
+  const [bulkMode,       setBulkMode]       = useState(false);
+  const [selectedIds,    setSelectedIds]    = useState(new Set());
+
   // ── Undo / Redo ──
   const undoStack = useRef([]);
   const redoStack = useRef([]);
@@ -140,6 +144,41 @@ export default function useKanban() {
     setEditing(null);
   }, [pushUndo]);
   const updateLog       = (key, patch) => setLog((p) => ({ ...p, [key]: { ...p[key], ...patch } }));
+
+  // ── Bulk actions ──
+  const toggleSelectTask = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+  const selectAllVisible = useCallback(() => {
+    setSelectedIds(new Set(filteredTasks.map((t) => t.id)));
+  }, [filteredTasks]);
+  const deselectAll = useCallback(() => setSelectedIds(new Set()), []);
+  const exitBulkMode = useCallback(() => { setBulkMode(false); setSelectedIds(new Set()); }, []);
+  const bulkDelete = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    pushUndo(`delete ${selectedIds.size} tasks`);
+    setTasks((p) => p.filter((t) => !selectedIds.has(t.id)));
+    addToast(`Deleted ${selectedIds.size} task${selectedIds.size > 1 ? "s" : ""}`, "success", 3000);
+    exitBulkMode();
+  }, [selectedIds, pushUndo, addToast, exitBulkMode]);
+  const bulkMove = useCallback((colId) => {
+    if (selectedIds.size === 0) return;
+    pushUndo(`move ${selectedIds.size} tasks`);
+    setTasks((p) => p.map((t) => selectedIds.has(t.id) ? { ...t, col: colId } : t));
+    addToast(`Moved ${selectedIds.size} task${selectedIds.size > 1 ? "s" : ""} to ${colId}`, "success", 3000);
+    exitBulkMode();
+  }, [selectedIds, pushUndo, addToast, exitBulkMode]);
+  const bulkEditField = useCallback((field, value) => {
+    if (selectedIds.size === 0 || !value) return;
+    pushUndo(`edit ${selectedIds.size} tasks`);
+    setTasks((p) => p.map((t) => selectedIds.has(t.id) ? { ...t, [field]: value } : t));
+    addToast(`Updated ${field} on ${selectedIds.size} task${selectedIds.size > 1 ? "s" : ""}`, "success", 3000);
+    exitBulkMode();
+  }, [selectedIds, pushUndo, addToast, exitBulkMode]);
 
   // ── Subtask toggle (from card) ──
   const toggleSubtask = useCallback((taskId, subtaskId) => {
@@ -276,6 +315,11 @@ export default function useKanban() {
     searchQuery, filterType, filterPriority,
     showBackup, showShortcuts,
     filteredTasks,
+
+    // Bulk selection
+    bulkMode, selectedIds,
+    setBulkMode, toggleSelectTask, selectAllVisible, deselectAll,
+    exitBulkMode, bulkDelete, bulkMove, bulkEditField,
 
     // Undo / Redo
     undo, redo, canUndo, canRedo,

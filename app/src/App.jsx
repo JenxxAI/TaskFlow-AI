@@ -15,6 +15,7 @@ import AnalyticsDashboard from "./components/AnalyticsDashboard";
 import DataBackupModal from "./components/DataBackupModal";
 import KeyboardShortcutsModal from "./components/KeyboardShortcutsModal";
 import ToastContainer from "./components/ToastContainer";
+import BulkActionBar from "./components/BulkActionBar";
 
 export default function App() {
   const {
@@ -25,6 +26,10 @@ export default function App() {
     // new feature state
     searchQuery, filterType, filterPriority,
     showBackup, showShortcuts, filteredTasks,
+    // bulk selection
+    bulkMode, selectedIds,
+    setBulkMode, toggleSelectTask, selectAllVisible, deselectAll,
+    exitBulkMode, bulkDelete, bulkMove, bulkEditField,
     // undo/redo
     undo, redo, canUndo, canRedo,
     // toasts
@@ -103,6 +108,9 @@ export default function App() {
             <div className="stat"><span className="stat-num" style={{ color: blockedStat > 0 ? "#f59e0b" : "var(--text-muted)" }}>{blockedStat}</span><span className="stat-label">Blocked</span></div>
           </div>
           <div className="header-btn-group">
+            <button className="header-btn" onClick={() => { if (bulkMode) exitBulkMode(); else setBulkMode(true); }} title={bulkMode ? "Exit select mode" : "Select multiple tasks"}>
+              {bulkMode ? "✕" : "☑"}
+            </button>
             <button className="header-btn" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">↩</button>
             <button className="header-btn" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">↪</button>
             <button className="header-btn" onClick={() => setShowBackup(true)} title="Backup / Restore">💾</button>
@@ -125,6 +133,18 @@ export default function App() {
       {/* ── Board Tab ── */}
       {activeTab === "board" && (
         <>
+          {bulkMode && (
+            <BulkActionBar
+              selectedCount={selectedIds.size}
+              totalCount={filteredTasks.length}
+              onSelectAll={selectAllVisible}
+              onDeselectAll={deselectAll}
+              onExit={exitBulkMode}
+              onDelete={bulkDelete}
+              onMove={bulkMove}
+              onEditField={bulkEditField}
+            />
+          )}
           <SearchFilterBar
             searchQuery={searchQuery} onSearchChange={setSearchQuery}
             filterType={filterType} onFilterType={setFilterType}
@@ -142,6 +162,9 @@ export default function App() {
                 isOver={overCol === col.id}
                 onDelete={handleDelete} onEdit={setEditing} onAdd={handleAdd}
                 onMove={handleMove}
+                bulkMode={bulkMode}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelectTask}
               />
             ))}
           </div>
