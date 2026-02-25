@@ -1,5 +1,4 @@
 import { useState, useRef } from "react";
-import { STORAGE_KEY, LOG_KEY, THEME_KEY } from "../constants";
 
 export default function DataBackupModal({ tasks, log, theme, onRestore, onClose }) {
   const [status, setStatus] = useState("");
